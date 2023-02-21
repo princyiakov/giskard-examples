@@ -1,0 +1,56 @@
+name: Trains the model when data is pushed in data/processed folder
+
+on:
+  push:
+    paths:
+      - 'house-pricing-deployment/data/processed/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract branch name
+        shell: bash
+        run: echo "##[set-output name=branch;]$(echo ${GITHUB_REF#refs/heads/})"
+        id: extract_branch
+
+      - name: checkout repo content
+        uses: actions/checkout@v2 # checkout the repository content to github runner
+
+      - name: setup python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.7.15' # install the python version needed
+
+      - uses: syphar/restore-virtualenv@v1
+        id: cache-virtualenv
+        with:
+          requirement_files: Giskard-deployment/requirements.txt  # this is optional
+
+      - uses: syphar/restore-pip-download-cache@v1
+        if: steps.cache-virtualenv.outputs.cache-hit != 'true'
+
+      - name: Get Changed File
+        run: |
+          CHANGED_FILE=$(echo ${{ github.event.head_commit.added }} ${{ github.event.head_commit.modified }} | awk '{print $1}')
+          echo "The changed file is: ${CHANGED_FILE}"
+
+        # the package installation will only be executed when the
+        # requirements-files have changed.
+      - run: pip install -r requirements.txt
+        if: steps.cache-virtualenv.outputs.cache-hit != 'true'
+        working-directory: house-pricing-deployment
+
+      - name: execute train script and archive data file
+        env:
+          EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+          API_KEY: ${{ secrets.API_KEY }}
+        run: |
+          CHANGED_FILE=$(echo ${{ github.event.head_commit.added }} ${{ github.event.head_commit.modified }} | awk '{print $1}')
+          python src/models/train_model.py --data CHANGED_FILE #echo "##[set-output name=model_name;]$(python src/models/train_model.py)"
+          rm $CHANGED_FILE
+        # cd models/trained && ls -1 | head -1 | xargs tar -czvf `ls -1 | head -1`.tar.gz && mv `ls -1 | head -1`.tar.gz ../archive/.
+        id: train_output
+        working-directory: house-pricing-deployment
